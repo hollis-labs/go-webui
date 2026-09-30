@@ -12,7 +12,7 @@ assets of its own.
 
 ## Status
 
-Pre-1.0 (`v0.1.x`). The API surface — `Handler`, `Config`, `IsBuilt` — is
+Pre-1.0. The API surface — `Handler`, `Config`, `IsBuilt` — is
 small and stable in shape, but minor breaks may still happen between `v0.x`
 releases. See [`CHANGELOG.md`](CHANGELOG.md) and pin a version in your
 `go.mod`.
@@ -80,6 +80,19 @@ Once a built SPA is present (`FS` contains a readable `index.html`):
 | Extension-less path, no file match | `index.html` (client-side route) |
 | Path with an extension, no file match | `404` — a missing asset is an error |
 
+## Caching
+
+`Handler` sets `Cache-Control` on every file it serves, using `CachePolicyFor`:
+
+| Response | `Cache-Control` |
+| --- | --- |
+| A file under `ImmutableDir` (default `assets`, Vite's `build.assetsDir`) | `public, max-age=31536000, immutable` |
+| The document (`index.html`, including a client route that falls back to it) | `no-cache` |
+| Any other file | `no-cache` |
+| A `404` or a directory response | never the immutable policy |
+
+The policy follows the file actually served, not the path requested, so a client route under `/assets/...` that falls back to the document still revalidates. It assumes the frontend build content-hashes what it puts in `ImmutableDir`; if it does not, set `ImmutableDir: "/"` to turn immutable caching off. There is no `ETag` or `Last-Modified`: an `embed.FS` reports a zero modification time, so `net/http` sends neither, and this package does not synthesize one.
+
 ## Placeholder mode
 
 When `FS` is `nil` or holds no `index.html` — for instance a binary built
@@ -95,6 +108,18 @@ mode a given `fs.FS` will select.
 | `FS` | The `fs.FS` holding the built SPA (`index.html` at its root) |
 | `BasePath` | URL prefix the SPA is mounted at; any slash spelling accepted; empty or `/` means the site root |
 | `Placeholder` | HTML served when no built SPA is present; defaults to `DefaultPlaceholder` |
+| `ImmutableDir` | Directory whose files are cached for a year as immutable; defaults to `assets`; `/` disables it |
+
+## Compatibility
+
+Pre-1.0: minor releases may change behavior, and v0.2.0 does. `Handler` now sets `Cache-Control` where v0.1.x set none on the real-file path, so every consumer picks up the caching policy by bumping the dependency, with no source change. Pin a version and read [`CHANGELOG.md`](CHANGELOG.md) before upgrading.
+
+## Out of scope
+
+- `ETag` and `Last-Modified`. No app in the portfolio uses either for SPA assets, and an `embed.FS` gives nothing to derive them from.
+- Path-traversal guards and method restrictions beyond what `net/http`'s file server does; a review of those is tracked separately.
+- Serving anything other than a built SPA: no API routing, no compression, no rewrites.
+- Shipping assets: the host owns the `//go:embed` directive.
 
 ## License
 

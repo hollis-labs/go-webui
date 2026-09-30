@@ -34,6 +34,15 @@ type Config struct {
 	// Placeholder is the HTML body served, with HTTP 200, for every request
 	// when FS holds no built SPA. When empty, DefaultPlaceholder is used.
 	Placeholder string
+
+	// ImmutableDir is the subdirectory (relative to FS's root) whose files
+	// Handler treats as content-hashed and caches for a year with an
+	// "immutable" Cache-Control. Empty selects DefaultImmutableDir ("assets",
+	// Vite's default build.assetsDir). Every other response, the document and
+	// any unhashed file included, is served with "no-cache". A value that is
+	// only slashes ("/") disables immutable caching entirely, for a build whose
+	// output is not content-hashed. See CachePolicyFor.
+	ImmutableDir string
 }
 
 // Handler returns an http.Handler that serves the SPA described by cfg.
@@ -46,6 +55,12 @@ type Config struct {
 //     client-side route and serves index.html (the SPA fallback).
 //   - A path with a file extension that matches no file returns 404 — a
 //     missing asset is an error, not a route.
+//
+// Every served file carries a Cache-Control header chosen by CachePolicyFor:
+// files under Config.ImmutableDir are immutable for a year; the document and
+// everything else revalidate. embed.FS reports a zero modification time, so
+// net/http would otherwise send no cache header of any kind. A 404 and a
+// directory response never carry the immutable policy.
 //
 // When FS holds no built SPA, every request serves the placeholder page.
 func Handler(cfg Config) http.Handler {
@@ -60,6 +75,11 @@ func Handler(cfg Config) http.Handler {
 		return placeholderHandler(placeholder)
 	}
 
+	immutableDir := DefaultImmutableDir
+	if cfg.ImmutableDir != "" {
+		immutableDir = cfg.ImmutableDir
+	}
+
 	fileServer := http.FileServer(http.FS(cfg.FS))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +89,8 @@ func Handler(cfg Config) http.Handler {
 			reqPath = "index.html"
 		}
 
-		if _, err := fs.Stat(cfg.FS, reqPath); err != nil {
+		info, err := fs.Stat(cfg.FS, reqPath)
+		if err != nil {
 			// A missing asset (anything with an extension) is a 404;
 			// an extension-less path is a client route and falls back
 			// to index.html.
@@ -78,7 +99,18 @@ func Handler(cfg Config) http.Handler {
 				return
 			}
 			reqPath = "index.html"
+			info = nil // the document, not whatever was asked for
 		}
+
+		// Cache-Control follows the file actually served, decided after the
+		// fallback above, and is set only once a 404 can no longer happen. A
+		// directory (FileServer answers it with a listing or a redirect) is not a
+		// hashed file and must revalidate.
+		policy := cacheNoCache
+		if info == nil || !info.IsDir() {
+			policy = CachePolicyFor(reqPath, immutableDir)
+		}
+		w.Header().Set("Cache-Control", policy)
 
 		// Serve via a clone so the original request is left untouched.
 		// index.html is served as "/" because http.FileServer redirects
