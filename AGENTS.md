@@ -9,7 +9,8 @@ host owns the `//go:embed` directive; this module ships no assets.
 ## Start Here
 
 - `README.md` shows the embed-and-serve call shape.
-- `webui.go` is the whole library: `Handler`, `Config` and `IsBuilt`.
+- `webui.go` is the library: `Handler`, `Config` and `IsBuilt`.
+- `cache.go` is the cache policy: `CachePolicyFor` and `DefaultImmutableDir`.
 - `placeholder.go` is the not-yet-built page.
 - `examples/embedded/main.go` is a runnable host.
 
@@ -45,3 +46,14 @@ that looks like a broken build.
 
 Keep the module dependency-free. It is imported by binaries that ship a
 frontend, and its whole value is being cheap to adopt.
+
+`Cache-Control` follows the file actually served, decided after the SPA
+fallback and only once a 404 can no longer happen. Computing it from the
+requested path would serve the document under `/assets/...` as immutable for a
+year, and setting it before the 404 check would let a missing asset be cached.
+A directory response is never immutable either. `TestFallbackToIndexRevalidatesEvenUnderTheImmutableDir`,
+`TestMissingAssetUnderTheImmutableDirIsNeverImmutable` and
+`TestDirectoryResponsesAreNeverImmutable` are the ones to keep green;
+`TestCachePolicyFor` pins the whole-segment prefix match ("assets" is not
+"assets-old"). Do not add ETag or Last-Modified: an `embed.FS` has a zero
+modification time to derive them from.
