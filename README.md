@@ -12,7 +12,7 @@ assets of its own.
 
 ## Status
 
-Pre-1.0 (`v0.1.x`). The API surface — `Handler`, `Config`, `IsBuilt` — is
+Pre-1.0. The API surface — `Handler`, `Config`, `IsBuilt` — is
 small and stable in shape, but minor breaks may still happen between `v0.x`
 releases. See [`CHANGELOG.md`](CHANGELOG.md) and pin a version in your
 `go.mod`.
